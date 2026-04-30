@@ -1,5 +1,5 @@
 secretKey: process.env.SECRET_KEY || (() => {
-  throw new Error('696473');
+  throw new Error('69647395');
 })(),
 host: process.env.HOST || 'https://wppconnect-server-production-dc28.up.railway.app',
 port: process.env.PORT || '21465',
