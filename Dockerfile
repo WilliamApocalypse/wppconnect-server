@@ -1,4 +1,4 @@
-# ===== Builder stage =====
+# ===== Stage 1: Builder =====
 FROM node:20-bookworm-slim AS builder
 
 WORKDIR /app
@@ -9,14 +9,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY package*.json ./
 
-# Ignora scripts (husky/prepare) na instalação
 RUN npm install --legacy-peer-deps --ignore-scripts
 
 COPY . .
 
 RUN npm run build
 
-# ===== Runtime stage =====
+# ===== Stage 2: Runtime =====
 FROM node:20-bookworm-slim
 
 WORKDIR /app
@@ -43,25 +42,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libxfixes3 \
       libxrandr2 \
       libxkbcommon0 \
-      xdg-utils \
-      curl \
+      ca-certificates \
+      tini \
     && rm -rf /var/lib/apt/lists/*
 
 COPY package*.json ./
 
-# Produção + dependências de runtime que faltam no fork
-# --ignore-scripts evita rodar husky/prepare (devDependency ausente)
-RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts \
-    && npm install --no-save --legacy-peer-deps --ignore-scripts \
-       @babel/runtime@^7.29.2 prom-client@^14.2.0
+RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
 COPY --from=builder /app/dist ./dist
 
-RUN mkdir -p /app/tokens /tmp/userDataDir
-
 EXPOSE 21465
 
-HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD curl -f http://localhost:21465/healthz || exit 1
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 CMD ["sh", "-c", "rm -rf /app/tokens/*.json /tmp/userDataDir/* 2>/dev/null; node dist/server.js"]
