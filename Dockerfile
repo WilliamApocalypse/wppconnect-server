@@ -9,20 +9,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY package*.json ./
 
-RUN npm install --legacy-peer-deps --ignore-scripts
+RUN npm install --legacy-peer-deps
 
 COPY . .
 
 RUN npm run build
 
 # ===== Stage 2: Runtime =====
-FROM node:20-bookworm-slim
+FROM node:20-bookworm-slim AS stage-1
 
 WORKDIR /app
 
-ENV NODE_ENV=production \
-    PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_ENV=production
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
       chromium \
@@ -55,5 +55,4 @@ COPY --from=builder /app/dist ./dist
 EXPOSE 21465
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-
-CMD ["sh", "-c", "rm -rf /app/tokens/*.json /tmp/userDataDir/* 2>/dev/null; node dist/server.js"]
+CMD ["node", "dist/server.js"]
