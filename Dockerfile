@@ -9,7 +9,7 @@
 # 3. Define CHROMIUM_PATH explícito (evita download em runtime)
 # ============================================================================
 
-FROM node:20-slim
+FROM node:22-slim
 
 # Chromium do sistema (mais estável em Docker que o baixado pelo Puppeteer)
 RUN apt-get update && apt-get install -y \
@@ -41,7 +41,9 @@ ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install --omit=dev --legacy-peer-deps
+# --ignore-scripts pula o "husky install" (script de dev que não existe em prod)
+# --legacy-peer-deps resolve conflito do @typescript-eslint
+RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
 COPY . .
 RUN npm run build || true
