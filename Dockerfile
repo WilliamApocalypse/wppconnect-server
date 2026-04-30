@@ -1,14 +1,40 @@
 # ============================================================================
-# WPPConnect Server — Dockerfile OTIMIZADO para Railway
+# WPPConnect Server — Dockerfile OTIMIZADO para Railway (multi-stage)
 # ============================================================================
-# Aplicar no fork do wppconnect-server, substituindo o Dockerfile existente.
+# Build em duas etapas:
+#   1. BUILDER  → instala TODAS as deps (incluindo dev) e compila TypeScript
+#   2. RUNTIME  → imagem enxuta com Chromium + dist/ + node_modules de prod
 #
-# Mudanças críticas:
-# 1. Limpa /app/tokens/*.data.json no boot (evita sessões zumbis)
-# 2. Limpa /tmp/userDataDir/ no boot (garante estado limpo)
-# 3. Define CHROMIUM_PATH explícito (evita download em runtime)
+# Por que multi-stage?
+#   - `tsc` está em devDependencies. Se rodarmos `--omit=dev`, o build falha
+#     com "tsc: not found". Se rodarmos sem `--omit=dev`, a imagem final fica
+#     gigante. Multi-stage resolve os dois problemas.
+#   - `--ignore-scripts` é necessário porque o repo do WPPConnect tem
+#     `prepare: husky install` que quebra em produção.
 # ============================================================================
 
+# ----------------------------------------------------------------------------
+# STAGE 1 — BUILDER (compila TypeScript)
+# ----------------------------------------------------------------------------
+FROM node:22-slim AS builder
+
+WORKDIR /app
+
+COPY package*.json ./
+
+# Instala TODAS as deps (dev + prod) para conseguir rodar `tsc`.
+# --ignore-scripts evita o `husky install` quebrar.
+# --legacy-peer-deps resolve conflito de @typescript-eslint/parser.
+RUN npm install --legacy-peer-deps --ignore-scripts
+
+COPY . .
+
+# Compila TypeScript → dist/
+RUN npm run build
+
+# ----------------------------------------------------------------------------
+# STAGE 2 — RUNTIME (imagem final, enxuta, com Chromium)
+# ----------------------------------------------------------------------------
 FROM node:22-slim
 
 # Chromium do sistema (mais estável em Docker que o baixado pelo Puppeteer)
@@ -37,16 +63,19 @@ RUN apt-get update && apt-get install -y \
 # Pula download do Chromium pelo Puppeteer — usamos o do sistema
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
+ENV NODE_ENV=production
 
 WORKDIR /app
 
+# Instala APENAS deps de produção (imagem enxuta)
 COPY package*.json ./
-# --ignore-scripts pula o "husky install" (script de dev que não existe em prod)
-# --legacy-peer-deps resolve conflito do @typescript-eslint
 RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts
 
-COPY . .
-RUN npm run build || true
+# Copia o build pronto do stage anterior
+COPY --from=builder /app/dist ./dist
+
+# Copia arquivos auxiliares que o servidor pode precisar em runtime
+COPY --from=builder /app/src ./src
 
 # Script de boot: limpa lixo de execuções anteriores ANTES de subir o servidor
 # Isso é o que mata o problema de "sessões zumbis acumulando".
@@ -58,8 +87,8 @@ echo "[boot] Cleaning userDataDir..."\n\
 rm -rf /tmp/userDataDir/* 2>/dev/null || true\n\
 mkdir -p /tmp/userDataDir\n\
 mkdir -p /app/tokens\n\
-echo "[boot] Starting WPPConnect server..."\n\
-exec node dist/server.js\n' > /app/boot.sh && chmod +x /app/boot.sh
+echo "[boot] Starting WPPConnect server on port ${PORT:-21465}..."\n\
+exec node --max-old-space-size=1536 dist/server.js\n' > /app/boot.sh && chmod +x /app/boot.sh
 
 EXPOSE 21465
 
