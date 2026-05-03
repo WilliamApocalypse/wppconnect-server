@@ -27,7 +27,7 @@ port: process.env.PORT || '21465',
 deviceName: 'AchadinhosBot',
 poweredBy: 'AchadinhosBot',
 
-tokenStoreType: 'file',
+tokenStoreType: 'memory',
 startAllSession: false,
 maxListeners: 15, 
   customUserDataDir: '/tmp/userDataDir/',
@@ -121,14 +121,16 @@ maxListeners: 15,
   puppeteerOptions: {
     headless: 'new',
     userDataDir: '/tmp/userDataDir/',
+    protocolTimeout: 120000,
   },
+  whatsappVersion: '2.3000.1023901801',  
   disableWelcome: true,
   updatesLog: false,
-  autoClose: 120000, // 2 min — alinhado com polling do QR
+  autoClose: 60000, // 1 min — alinhado com polling do QR
   waitForLogin: true,
   logQR: false,
-  tokenStore: 'file',
-  folderNameToken: './tokens',
+  tokenStore: 'memory',
+  //folderNameToken: './tokens',
 },
 
 mapper: { enable: false, prefix: 'tagone-' },
