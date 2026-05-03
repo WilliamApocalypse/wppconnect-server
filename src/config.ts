@@ -117,11 +117,11 @@ maxListeners: 15,
     '--safebrowsing-disable-auto-update',
     // 🆕 anti-detecção 2026
     '--disable-blink-features=AutomationControlled',
+    //'--single-process', UNIFICAR TODO PROCESSO EM UM PROCESSO SÓ
   ],
   puppeteerOptions: {
     headless: 'new',
-    userDataDir: '/tmp/userDataDir/',
-    protocolTimeout: 120000,
+    protocolTimeout: 60000,
   },
   whatsappVersion: '2.3000.1023901801',  
   disableWelcome: true,
