@@ -16,6 +16,7 @@
 import { ServerOptions } from './types/ServerOptions';
 
 export default {
+  
   // ==========================================================================
   // SECRET / AUTH — vem do env do Railway
   // ==========================================================================
