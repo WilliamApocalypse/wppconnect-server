@@ -122,7 +122,7 @@ maxListeners: 50,
   ],
   puppeteerOptions: {
     headless: 'new',
-    protocolTimeout: 60000,
+    protocolTimeout: 120000,
   },
   whatsappVersion: '2.3000.1023901801',  
   disableWelcome: true,
