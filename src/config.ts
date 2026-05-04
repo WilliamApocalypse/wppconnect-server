@@ -30,7 +30,7 @@ poweredBy: 'AchadinhosBot',
 
 tokenStoreType: 'memory',
 startAllSession: false,
-maxListeners: 15, 
+maxListeners: 50, 
   customUserDataDir: '/tmp/userDataDir/',
 
   // ==========================================================================
