@@ -11,6 +11,7 @@ export interface ServerOptions {
   tokenStoreType: string;
   maxListeners: number;
   customUserDataDir: string;
+  senderOnly: boolean;
   webhook: {
     url: string;
     autoDownload: boolean;
