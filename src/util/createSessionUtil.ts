@@ -40,10 +40,49 @@ export default class CreateSessionUtil {
     res?: any
   ) {
     try {
-      let client = this.getClient(session) as any;
-      if (client.status != null && client.status !== 'CLOSED') return;
-      client.status = 'INITIALIZING';
-      client.config = req.body;
+let client = this.getClient(session) as any;
+
+// Se ficou preso em INITIALIZING por mais de 120 segundos,
+// considera a sessão corrompida e libera nova tentativa.
+if (
+  client.status === 'INITIALIZING' &&
+  client.initializingStartedAt &&
+  Date.now() - client.initializingStartedAt > 120000
+) {
+  req.logger.warn(
+    `[${session}] INITIALIZING preso por mais de 120 segundos. Limpando sessão.`
+  );
+
+  
+client.status = "CLOSED";
+  client.qrcode = null;
+
+  
+  try {
+    await client.close().catch(() => {});
+  } catch (err) {
+    req.logger.warn(
+      `[${session}] Erro ao fechar sessão travada: ${err}`
+    );
+  }
+
+  
+
+  delete clientsArray[session];
+
+  client = this.getClient(session) as any;
+}
+
+if (client.status != null && client.status !== 'CLOSED') {
+  req.logger.warn(
+    `[${session}] Ignorando create(): status atual = ${client.status}`
+  );
+  return;
+}
+
+client.status = 'INITIALIZING';
+client.initializingStartedAt = Date.now();
+client.config = req.body;
 
       const tokenStore = new Factory();
       const myTokenStore = tokenStore.createTokenStory(client);
@@ -60,77 +99,127 @@ export default class CreateSessionUtil {
         };
       }
 
-      const wppClient = await create(
-        Object.assign(
-          {},
-          { tokenStore: myTokenStore },
-          client.config.proxy
-            ? {
-                proxy: {
-                  url: client.config.proxy?.url,
-                  username: client.config.proxy?.username,
-                  password: client.config.proxy?.password,
-                },
-              }
-            : {},
-          req.serverOptions.createOptions,
-          {
-            session: session,
-            phoneNumber: client.config.phone ?? null,
-            deviceName:
-              client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
-                ? client.config?.deviceName ||
-                  req.serverOptions.deviceName ||
-                  'WppConnect'
-                : undefined,
-            poweredBy:
-              client.config.phone == undefined // bug when using phone code this shouldn't be passed (https://github.com/wppconnect-team/wppconnect-server/issues/1687#issuecomment-2099357874)
-                ? client.config?.poweredBy ||
-                  req.serverOptions.poweredBy ||
-                  'WPPConnect-Server'
-                : undefined,
-            catchLinkCode: (code: string) => {
-              this.exportPhoneCode(req, client.config.phone, code, client, res);
-            },
-            catchQR: (
-              base64Qr: any,
-              asciiQR: any,
-              attempt: any,
-              urlCode: string
-            ) => {
-              this.exportQR(req, base64Qr, urlCode, client, res);
-            },
-            onLoadingScreen: (percent: string, message: string) => {
-              req.logger.info(`[${session}] ${percent}% - ${message}`);
-            },
-            statusFind: (statusFind: StatusFind) => {
-              try {
-                eventEmitter.emit(
-                  `status-${client.session}`,
-                  client,
-                  statusFind
-                );
-                if (
-                  statusFind === StatusFind.autocloseCalled ||
-                  statusFind === StatusFind.disconnectedMobile
-                ) {
-                  client.status = 'CLOSED';
-                  client.qrcode = null;
-                  client.close();
-                  clientsArray[session] = undefined;
-                }
-                callWebHook(client, req, 'status-find', {
-                  status: statusFind,
-                  session: client.session,
-                });
-                req.logger.info(statusFind + '\n\n');
-              } catch (error) {}
+req.logger.info(`[${session}] STEP 1 - Chamando wppconnect.create()`);
+      
+
+
+const CREATE_TIMEOUT = 90000;
+
+let createTimeoutHandle: NodeJS.Timeout;
+
+const timeoutPromise = new Promise((_, reject) => {
+  createTimeoutHandle = setTimeout(() => {
+    reject(new Error("CREATE_SESSION_TIMEOUT"));
+  }, CREATE_TIMEOUT);
+});
+
+
+
+let wppClient: any;
+
+try {
+
+    wppClient = await Promise.race([
+  create(
+    Object.assign(
+      {},
+      { tokenStore: myTokenStore },
+      client.config.proxy
+        ? {
+            proxy: {
+              url: client.config.proxy?.url,
+              username: client.config.proxy?.username,
+              password: client.config.proxy?.password,
             },
           }
-        )
-      );
+        : {},
+      req.serverOptions.createOptions,
+      {
+        session: session,
+        phoneNumber: client.config.phone ?? null,
+
+        deviceName:
+          client.config.phone == undefined
+            ? client.config?.deviceName ||
+              req.serverOptions.deviceName ||
+              "WppConnect"
+            : undefined,
+
+        poweredBy:
+          client.config.phone == undefined
+            ? client.config?.poweredBy ||
+              req.serverOptions.poweredBy ||
+              "WPPConnect-Server"
+            : undefined,
+
+        catchLinkCode: (code: string) => {
+          this.exportPhoneCode(req, client.config.phone, code, client, res);
+        },
+
+        catchQR: (
+          base64Qr,
+          asciiQR,
+          attempt,
+          urlCode
+        ) => {
+          req.logger.info(
+            `[${session}] STEP 3 - QR RECEBIDO (attempt=${attempt})`
+          );
+
+          this.exportQR(req, base64Qr, urlCode, client, res);
+        },
+
+        onLoadingScreen: (percent, message) => {
+          req.logger.info(
+            `[${session}] LOADING ${percent}% - ${message}`
+          );
+        },
+
+        statusFind: async (statusFind: StatusFind) => {
+          try {
+            eventEmitter.emit(
+              `status-${client.session}`,
+              client,
+              statusFind
+            );
+
+            if (
+              statusFind === StatusFind.autocloseCalled ||
+              statusFind === StatusFind.disconnectedMobile
+            ) {
+              client.status = "CLOSED";
+              client.qrcode = null;
+
+              await client.close().catch(() => {});
+            }
+
+            callWebHook(client, req, "status-find", {
+              status: statusFind,
+              session: client.session,
+            });
+
+            req.logger.info(statusFind + "\n\n");
+          } catch {}
+        },
+      }
+    )
+  ),
+
+  timeoutPromise,
+]);
+
+} finally {
+
+    clearTimeout(createTimeoutHandle);
+
+}      
+
+
+      
+      req.logger.info(`[${session}] STEP 2 - wppconnect.create() retornou`);
 
       client = clientsArray[session] = Object.assign(wppClient, client);
+      delete client.initializingStartedAt;
       await this.start(req, client);
 
       if (req.serverOptions.webhook.onParticipantsChanged) {
@@ -152,12 +241,30 @@ export default class CreateSessionUtil {
         await this.onLabelUpdated(client, req);
       }
     } catch (e) {
-      req.logger.error(e);
-      if (e instanceof Error && e.name == 'TimeoutError') {
-        const client = this.getClient(session) as any;
-        client.status = 'CLOSED';
-      }
-    }
+  req.logger.error(e);
+  req.logger.error(
+    `[${session}] createSessionUtil falhou`,
+    e
+);
+
+
+      
+  try {
+    const client = this.getClient(session) as any;
+
+    client.status = "CLOSED";
+    client.qrcode = null;
+    delete client.initializingStartedAt;
+    delete clientsArray[session];
+
+    req.logger.warn(
+      `[${session}] Sessão resetada após erro durante create()`
+    );
+
+  } catch (cleanupError) {
+    req.logger.error(cleanupError);
+  }
+}
   }
 
   async opendata(req: Request, session: string, res?: any) {
@@ -252,10 +359,20 @@ export default class CreateSessionUtil {
       //callWebHook(client, req, 'session-logged', { status: 'CONNECTED'});
       req.io.emit('session-logged', { status: true, session: client.session });
       startHelper(client, req);
-    } catch (error) {
-      req.logger.error(error);
-      req.io.emit('session-error', client.session);
-    }
+    } catch(error){
+
+    req.logger.error(error);
+
+    client.status="CLOSED";
+
+    delete clientsArray[client.session];
+
+    req.io.emit(
+        "session-error",
+        client.session
+    );
+
+}
 
 await this.checkStateSession(client, req);
 
