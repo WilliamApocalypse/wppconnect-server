@@ -105,8 +105,7 @@ req.logger.info(`[${session}] STEP 1 - Chamando wppconnect.create()`);
 
 const CREATE_TIMEOUT = 90000;
 
-let createTimeoutHandle: NodeJS.Timeout;
-
+let createTimeoutHandle: NodeJS.Timeout | undefined;
 const timeoutPromise = new Promise((_, reject) => {
   createTimeoutHandle = setTimeout(() => {
     reject(new Error("CREATE_SESSION_TIMEOUT"));
@@ -209,10 +208,10 @@ try {
 ]);
 
 } finally {
-
-    clearTimeout(createTimeoutHandle);
-
-}      
+    if (createTimeoutHandle) {
+        clearTimeout(createTimeoutHandle);
+    }
+}   
 
 
       
