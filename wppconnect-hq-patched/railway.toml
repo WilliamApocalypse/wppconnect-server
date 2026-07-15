@@ -1,0 +1,27 @@
+# ============================================================================
+# WPPConnect Server — railway.toml
+# ============================================================================
+# Coloque na raiz do fork do wppconnect-server.
+# Garante restart automático em crash e healthcheck no /healthz.
+# ============================================================================
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "Dockerfile"
+
+[deploy]
+# Reinicia automaticamente se o servidor crashar (parte da nossa estratégia
+# de "restart é parte do sistema" — o Chromium vaza e precisamos resetar)
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10
+
+# Healthcheck: Railway mata e reinicia o container se /healthz não responder
+healthcheckPath = "/healthz"
+healthcheckTimeout = 30
+
+# Número de réplicas — manter 1 (sessões WPP são stateful por instância)
+numReplicas = 1
+
+[[deploy.envs]]
+# Garante que Node não use mais de 80% da RAM do container
+NODE_OPTIONS = "--max-old-space-size=1536"
